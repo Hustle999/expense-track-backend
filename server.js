@@ -11,13 +11,12 @@ const app = express();
 const sql = neon(process.env.DATABASE_URL);
 
 const corsOptions = {
-  origin: "http://localhost:3000",
+  origin: "*",
   methods: "GET,POST",
   allowedHeaders: "Content-Type, Authorization",
 };
 
 app.use(cors(corsOptions));
-
 app.use(express.json());
 
 app.get("/", async (request, response) => {
@@ -27,6 +26,17 @@ app.get("/", async (request, response) => {
   } catch (error) {
     console.error("Error querying database:", error);
     response.status(500).send("Error querying database");
+  }
+});
+
+app.get("/get-categories", async (req, res) => {
+  try {
+    const result = await sql("SELECT name FROM category");
+
+    res.status(200).json({ categories: result });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: "Failed to fetch categories." });
   }
 });
 
@@ -63,7 +73,7 @@ app.post("/signup", async (req, res) => {
     }
 
     const newUser = await sql`
-        INSERT INTO user_data (email, password) 
+        INSERT INTO user_data (email, password)
         VALUES (${email}, ${password})
         RETURNING id, email
       `;
@@ -78,17 +88,34 @@ app.post("/signup", async (req, res) => {
   }
 });
 
-app.post("/create-category", async (req, response) => {
-  const { tableName } = req.body;
+app.post("/create-category", async (req, res) => {
+  const { categoryname } = req.body;
+
+  if (!categoryname) {
+    return res.status(400).json({ error: "Category name is required." });
+  }
+
+  const insertCategoryQuery = `
+    INSERT INTO category (name) 
+    VALUES ($1)  -- Parameterized query
+    RETURNING name; -- Return the created category name for confirmation
+  `;
+
   try {
-    const newtable = await sql`CREATE TABLE IF NOT EXISTS ${tableName} 
-      (id SERIAL PRIMARY KEY, incomes TEXT NOT NULL, expenses TEXT NOT NULL);
-      INSERT INTO ${tableName} (incomes, expenses)
-      VALUES ('0', '0')`;
-    response.send(newtable);
+    const result = await sql(insertCategoryQuery, [categoryname]);
+
+    if (result.length === 0) {
+      return res.status(500).json({ error: "Failed to create category." });
+    }
+
+    const createdCategory = result[0];
+    res.status(201).json({
+      message: `Category '${createdCategory.name}' created successfully!`,
+      category: createdCategory,
+    });
   } catch (error) {
-    console.error("Error querying database:", error);
-    response.status(500).send("Error querying database");
+    console.error("Error creating category:", error);
+    res.status(500).json({ error: "Failed to create category." });
   }
 });
 
